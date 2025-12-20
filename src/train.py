@@ -1,73 +1,113 @@
 import tensorflow as tf
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, Dropout
+from tensorflow.keras import layers, models
 import json
 import os
 
-DATASET_PATH = "intel-image-classification"
+# =====================
+# CONFIG (FIXED PATHS)
+# =====================
+TRAIN_DIR = "intel-image-classification/seg_train/seg_train"
+VAL_DIR   = "intel-image-classification/seg_test"
 
-train_dir = os.path.join(DATASET_PATH, "seg_train/seg_train")
-test_dir = os.path.join(DATASET_PATH, "seg_test/seg_test")
+IMG_SIZE = (150, 150)
+BATCH_SIZE = 32
+EPOCHS = 10
 
-img_height, img_width = 150, 150
-batch_size = 32
-
-train_datagen = ImageDataGenerator(
-    rescale=1./255,
-    rotation_range=20,
-    zoom_range=0.2,
-    horizontal_flip=True,
-    validation_split=0.2
+# =====================
+# LOAD DATA
+# =====================
+train_ds = tf.keras.utils.image_dataset_from_directory(
+    TRAIN_DIR,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    shuffle=True
 )
 
-train_generator = train_datagen.flow_from_directory(
-    train_dir,
-    target_size=(img_height, img_width),
-    batch_size=batch_size,
-    class_mode="categorical",
-    subset="training"
+val_ds = tf.keras.utils.image_dataset_from_directory(
+    VAL_DIR,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    shuffle=False
 )
 
-val_generator = train_datagen.flow_from_directory(
-    train_dir,
-    target_size=(img_height, img_width),
-    batch_size=batch_size,
-    class_mode="categorical",
-    subset="validation"
-)
+class_names = train_ds.class_names
+num_classes = len(class_names)
 
-model = Sequential([
-    Conv2D(32, (3,3), activation="relu", input_shape=(150,150,3)),
-    MaxPooling2D(2,2),
+print("✅ Detected classes:", class_names)
+print("✅ Number of classes:", num_classes)
 
-    Conv2D(64, (3,3), activation="relu"),
-    MaxPooling2D(2,2),
+# =====================
+# PERFORMANCE
+# =====================
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = train_ds.cache().shuffle(1000).prefetch(AUTOTUNE)
+val_ds   = val_ds.cache().prefetch(AUTOTUNE)
 
-    Conv2D(128, (3,3), activation="relu"),
-    MaxPooling2D(2,2),
+# =====================
+# DATA AUGMENTATION
+# =====================
+data_augmentation = tf.keras.Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomRotation(0.1),
+    layers.RandomZoom(0.1),
+])
 
-    Flatten(),
-    Dense(256, activation="relu"),
-    Dropout(0.5),
-    Dense(6, activation="softmax")
+# =====================
+# MODEL
+# =====================
+model = models.Sequential([
+    layers.Input(shape=(150, 150, 3)),
+
+    layers.Rescaling(1./255),
+    data_augmentation,
+
+    layers.Conv2D(32, 3, activation="relu"),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+
+    layers.Conv2D(64, 3, activation="relu"),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+
+    layers.Conv2D(128, 3, activation="relu"),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+
+    layers.Flatten(),
+    layers.Dense(128, activation="relu"),
+    layers.Dropout(0.5),
+
+    layers.Dense(num_classes, activation="softmax")
 ])
 
 model.compile(
     optimizer="adam",
-    loss="categorical_crossentropy",
+    loss="sparse_categorical_crossentropy",
     metrics=["accuracy"]
 )
 
-history = model.fit(
-    train_generator,
-    epochs=10,
-    validation_data=val_generator
+model.summary()
+
+# =====================
+# TRAIN
+# =====================
+model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=EPOCHS
 )
 
-model.save("../model/cnn_model.h5")
+# =====================
+# SAVE MODEL + LABELS
+# =====================
+os.makedirs("model", exist_ok=True)
 
-with open("../model/class_indices.json", "w") as f:
-    json.dump(train_generator.class_indices, f)
+model.save("model/cnn_model.keras")
 
-print("Model training complete!")
+class_indices = {name: idx for idx, name in enumerate(class_names)}
+with open("model/class_indices.json", "w") as f:
+    json.dump(class_indices, f, indent=4)
+
+print("✅ Training completed successfully")
+print("✅ Model saved to model/cnn_model.keras")
+print("✅ Class indices saved")

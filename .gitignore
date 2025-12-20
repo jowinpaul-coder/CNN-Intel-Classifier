@@ -1,0 +1,9 @@
+# Ignore datasets
+intel-image-classification/
+
+# Ignore trained models
+model/
+
+# Python cache
+__pycache__/
+*.pyc

@@ -1,33 +1,31 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-from PIL import Image
+import json
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
-st.title("Intel Image Classification using CNN")
-st.write("Upload an image and the model will classify it into one of the 6 categories.")
+st.title("Intel Image Classification (MobileNetV2)")
 
-# Load model
-@st.cache_resource
-def load_model():
-    model = tf.keras.models.load_model("model/cnn_model.h5")
-    return model
+model = tf.keras.models.load_model("model/cnn_model.keras")
 
-model = load_model()
+with open("model/class_indices.json") as f:
+    class_indices = json.load(f)
 
-# Class names (Intel dataset)
-class_names = ['buildings', 'forest', 'glacier', 'mountain', 'sea', 'street']
+idx_to_class = {v: k for k, v in class_indices.items()}
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload an image", type=["jpg","jpeg","png"])
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+if uploaded_file:
+    img = image.load_img(uploaded_file, target_size=(224,224))
+    st.image(img, use_column_width=True)
 
-    img = image.resize((150, 150))
-    img_array = tf.keras.preprocessing.image.img_to_array(img)
-    img_batch = np.expand_dims(img_array, axis=0)
+    img_array = image.img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = preprocess_input(img_array)
 
-    prediction = model.predict(img_batch)
-    predicted_class = class_names[np.argmax(prediction)]
+    preds = model.predict(img_array)[0]
+    pred_class = idx_to_class[np.argmax(preds)]
 
-    st.write("### 🏷️ Prediction:", predicted_class)
+    st.success(f"Prediction: {pred_class}")
+    st.write(f"Confidence: {np.max(preds):.2f}")
